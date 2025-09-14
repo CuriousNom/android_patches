@@ -576,19 +576,15 @@ public class DisplayRotation {
         final int lastOrientation = mLastOrientation;
         @Surface.Rotation
         int rotation = rotationForOrientation(lastOrientation, oldRotation);
-        // Restore lockscreen rotation when auto rotate disabled
-        boolean autoRotateEnabled = Settings.System.getIntForUser(
-                mContext.getContentResolver(),
-                Settings.System.ACCELEROMETER_ROTATION, 0,
-                UserHandle.USER_CURRENT) != 0;
-        boolean isKeyguardLocked = mDisplayContent.mWmService.mPolicy.isKeyguardLocked();
-
-        // Preserve rotation using mUserRotation
-        if (!autoRotateEnabled && isKeyguardLocked) {
-            rotation = mUserRotation;
+        // Use the saved rotation for tabletop mode, if set.
+        if (mFoldController != null && mFoldController.shouldRevertOverriddenRotation()) {
+            int prevRotation = rotation;
+            rotation = mFoldController.revertOverriddenRotation();
             ProtoLog.v(WM_DEBUG_ORIENTATION,
-            "Restoring rotation from mUserRotation=%s (%d)",
-            Surface.rotationToString(rotation), rotation);
+                    "Reverting orientation. Rotating to %s from %s rather than %s.",
+                    Surface.rotationToString(rotation),
+                    Surface.rotationToString(oldRotation),
+                    Surface.rotationToString(prevRotation));
         }
 
         if (DisplayRotationCoordinator.isSecondaryInternalDisplay(mDisplayContent)
