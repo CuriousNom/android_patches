@@ -42,6 +42,7 @@ import android.view.Display;
 import android.view.IWindow;
 import android.view.IWindowSession;
 import android.view.View;
+import android.view.Surface;
 import android.view.ViewGroup;
 import android.view.WindowInsets;
 import android.view.WindowManager;
@@ -150,6 +151,7 @@ public class NotificationShadeWindowControllerImpl implements NotificationShadeW
     private int mDeferWindowLayoutParams;
     private boolean mLastKeyguardRotationAllowed;
 
+    private int mPreLockRotation = -1;
     private final NotificationShadeWindowState.Buffer mStateBuffer =
             new NotificationShadeWindowState.Buffer(MAX_STATE_CHANGES_BUFFER_SIZE);
 
@@ -496,6 +498,43 @@ public class NotificationShadeWindowControllerImpl implements NotificationShadeW
     }
 
     private void adjustScreenOrientation(NotificationShadeWindowState state) {
+        // Check if auto-rotate is enabled
+        boolean autoRotateEnabled = false;
+        try {
+            autoRotateEnabled = Settings.System.getInt(
+                    mContext.getContentResolver(),
+                    Settings.System.ACCELEROMETER_ROTATION, 0) == 1;
+        } catch (Exception e) {
+            Log.e(TAG, "Error reading auto-rotate setting", e);
+        }
+
+        // If auto-rotate is OFF, maintain rotation through lock/unlock cycle
+        if (!autoRotateEnabled) {
+            if (!state.bouncerShowing && !state.isKeyguardShowingAndNotOccluded()
+                    && !state.dozing) {
+                // Unlocking - keep the locked orientation
+                if (mPreLockRotation != -1) {
+                    applyLockedOrientation(mPreLockRotation);
+                } else {
+                    mLpChanged.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+                }
+                return;
+            }
+
+            // Locking - capture current rotation once
+            if (mPreLockRotation == -1) {
+                Display display = mContext.getDisplay();
+                if (display != null) {
+                    mPreLockRotation = display.getRotation();
+                }
+            }
+            applyLockedOrientation(mPreLockRotation);
+            return;
+        }
+
+        // Auto-rotate is ON - reset and use default behavior
+        mPreLockRotation = -1;
+
         boolean dreamShowingAndRotationAllowed = dreamsV2() ? mContext.getResources().getBoolean(
                 com.android.internal.R.bool.config_alwaysAllowDreamRotation)
                 && state.isOnOrGoingToDream : false;
@@ -510,6 +549,26 @@ public class NotificationShadeWindowControllerImpl implements NotificationShadeW
             mLpChanged.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR;
         } else {
             mLpChanged.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+        }
+    }
+
+    private void applyLockedOrientation(int rotation) {
+        switch (rotation) {
+            case Surface.ROTATION_0:
+                mLpChanged.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT;
+                break;
+            case Surface.ROTATION_90:
+                mLpChanged.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE;
+                break;
+            case Surface.ROTATION_180:
+                mLpChanged.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_PORTRAIT;
+                break;
+            case Surface.ROTATION_270:
+                mLpChanged.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_REVERSE_LANDSCAPE;
+                break;
+            default:
+                mLpChanged.screenOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED;
+                break;
         }
     }
 
